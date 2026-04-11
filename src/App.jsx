@@ -750,6 +750,7 @@ export default function App() {
       <main className="mx-auto max-w-2xl space-y-3 px-4 pb-16 pt-4">
         {!hasSelection && (
           <div className="rounded-3xl bg-white px-6 py-12 text-center shadow-sm">
+            <img src="/logo.png" alt="Linden 07" className="mx-auto mb-4 h-24 w-auto" />
             <div className="text-5xl">🎾</div>
             <div className="mt-4 text-lg font-bold">Willkommen!</div>
             <div className="mt-2 text-sm text-zinc-500 max-w-xs mx-auto">
