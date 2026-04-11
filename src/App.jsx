@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 
-// ─── Daten ────────────────────────────────────────────────────────────────────
+// ─── Konstanten ───────────────────────────────────────────────────────────────
 
 const DEFAULT_RESPONSE = "open";
 const CAPTAIN_PIN = "1907";
@@ -108,6 +108,37 @@ const TEAMS = [
   },
 ];
 
+// Einmalig beim Modulload berechnet – kein useMemo nötig
+const ALL_PLAYERS = (() => {
+  const map = new Map();
+  TEAMS.forEach((team) => {
+    [...team.starters, ...team.reserves].forEach((p) => {
+      const ex = map.get(p.name);
+      if (!ex) {
+        map.set(p.name, { name: p.name, lk: p.lk, teams: [team.id] });
+      } else {
+        ex.lk = Math.min(ex.lk, p.lk);
+        if (!ex.teams.includes(team.id)) ex.teams.push(team.id);
+      }
+    });
+  });
+  return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name, "de"));
+})();
+
+// Canvas-Farben einmalig definiert
+const C = {
+  purple:      "#4c1d95",
+  purpleDark:  "#2e1065",
+  purpleLight: "#ede9fe",
+  gold:        "#facc15",
+  white:       "#ffffff",
+  zinc900:     "#18181b",
+  zinc500:     "#71717a",
+  zinc100:     "#f4f4f5",
+  emerald:     "#059669",
+  red:         "#dc2626",
+};
+
 // ─── Hilfsfunktionen ──────────────────────────────────────────────────────────
 
 function formatDate(date) {
@@ -128,22 +159,6 @@ function sortByDate(matches) {
   );
 }
 
-function getAllPlayers() {
-  const map = new Map();
-  TEAMS.forEach((team) => {
-    [...team.starters, ...team.reserves].forEach((p) => {
-      const ex = map.get(p.name);
-      if (!ex) {
-        map.set(p.name, { name: p.name, lk: p.lk, teams: [team.id] });
-      } else {
-        ex.lk = Math.min(ex.lk, p.lk);
-        ex.teams = Array.from(new Set([...ex.teams, team.id]));
-      }
-    });
-  });
-  return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name, "de"));
-}
-
 function buildInitialResponses() {
   const state = {};
   TEAMS.forEach((team) => {
@@ -158,11 +173,7 @@ function buildInitialResponses() {
 }
 
 function createEmptyLineup() {
-  return {
-    singles: ["", "", "", ""],
-    doubles: ["", "", "", ""],
-    bench: ["", "", "", ""],
-  };
+  return { singles: ["", "", "", ""], doubles: ["", "", "", ""], bench: ["", "", "", ""] };
 }
 
 function normalizeLineup(input) {
@@ -170,7 +181,7 @@ function normalizeLineup(input) {
   return {
     singles: [0, 1, 2, 3].map((i) => src.singles?.[i] || ""),
     doubles: [0, 1, 2, 3].map((i) => src.doubles?.[i] || ""),
-    bench: [0, 1, 2, 3].map((i) => src.bench?.[i] || ""),
+    bench:   [0, 1, 2, 3].map((i) => src.bench?.[i]   || ""),
   };
 }
 
@@ -191,7 +202,7 @@ function getCounts(matchId, responses) {
     singles:        values.filter((v) => v === "available-singles").length,
     doubles:        values.filter((v) => v === "available-doubles").length,
     unavailable:    values.filter((v) => v === "unavailable").length,
-    totalAvailable: values.filter((v) => typeof v === "string" && v.startsWith("available")).length,
+    totalAvailable: values.filter((v) => v?.startsWith("available")).length,
   };
 }
 
@@ -230,26 +241,22 @@ function buildRecommendation(team, matchId, responses) {
     if (doubles.length === 4) break;
     if (!singles.some((s) => s.name === p.name)) doubles.push(p);
   }
-
   for (const p of pool) {
     if (doubles.length === 4) break;
-    if (!doubles.some((d) => d.name === p.name) && !singles.some((s) => s.name === p.name)) {
-      doubles.push(p);
-    }
+    if (!doubles.some((d) => d.name === p.name) && !singles.some((s) => s.name === p.name)) doubles.push(p);
   }
 
   const bench = pool.filter((p) => ![...singles, ...doubles].some((s) => s.name === p.name));
   const sd = [...doubles].sort((a, b) => a.lk - b.lk);
-  const doublePairs = sd.length >= 4 ? [[sd[0], sd[3]], [sd[1], sd[2]]] : [];
 
   return {
     singles,
     doubles,
     bench,
-    doublePairs,
-    totalSelected: singles.length + doubles.length,
+    doublePairs:     sd.length >= 4 ? [[sd[0], sd[3]], [sd[1], sd[2]]] : [],
+    totalSelected:   singles.length + doubles.length,
     captainIncluded: [...singles, ...doubles].some((p) => p.captain),
-    complete: singles.length === 4 && doubles.length === 4,
+    complete:        singles.length === 4 && doubles.length === 4,
   };
 }
 
@@ -258,10 +265,10 @@ function lkStr(lk) {
 }
 
 function responseLabel(value) {
-  if (value === "available-both") return "Beides";
+  if (value === "available-both")    return "Beides";
   if (value === "available-singles") return "Einzel";
   if (value === "available-doubles") return "Doppel";
-  if (value === "unavailable") return "Nicht dabei";
+  if (value === "unavailable")       return "Nicht dabei";
   return "Offen";
 }
 
@@ -270,20 +277,18 @@ function getTeamRosterForMatch(team, matchId, responses) {
     [...team.starters, ...team.reserves]
       .map((p) => ({
         ...p,
-        response: responses[matchId]?.[p.name] || DEFAULT_RESPONSE,
+        response:  responses[matchId]?.[p.name] || DEFAULT_RESPONSE,
         squadType: team.starters.some((s) => s.name === p.name) ? "Stamm" : "Reserve",
       }))
       .sort((a, b) => a.lk - b.lk)
   );
 }
 
-function getAllLineupNames(lineup) {
-  return [...lineup.singles, ...lineup.doubles, ...lineup.bench].filter(Boolean);
-}
-
 function getLineupSelectOptions(players, lineup, currentValue) {
-  const used = new Set(getAllLineupNames(lineup).filter((name) => name !== currentValue));
-  return players.filter((p) => !used.has(p.name) || p.name === currentValue);
+  const used = new Set(
+    [...lineup.singles, ...lineup.doubles, ...lineup.bench].filter((n) => n && n !== currentValue)
+  );
+  return players.filter((p) => !used.has(p.name));
 }
 
 function getLineupCompletionCount(lineup) {
@@ -293,10 +298,7 @@ function getLineupCompletionCount(lineup) {
 function slugifyFilePart(text) {
   return String(text || "")
     .toLowerCase()
-    .replace(/ä/g, "ae")
-    .replace(/ö/g, "oe")
-    .replace(/ü/g, "ue")
-    .replace(/ß/g, "ss")
+    .replace(/ä/g, "ae").replace(/ö/g, "oe").replace(/ü/g, "ue").replace(/ß/g, "ss")
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
 }
@@ -307,27 +309,25 @@ async function fetchJsonSafe(url) {
   return res.json();
 }
 
+// ─── Canvas Export ────────────────────────────────────────────────────────────
+
 function roundRect(ctx, x, y, width, height, radius) {
   const r = Math.min(radius, width / 2, height / 2);
   ctx.beginPath();
   ctx.moveTo(x + r, y);
-  ctx.arcTo(x + width, y, x + width, y + height, r);
-  ctx.arcTo(x + width, y + height, x, y + height, r);
-  ctx.arcTo(x, y + height, x, y, r);
-  ctx.arcTo(x, y, x + width, y, r);
+  ctx.arcTo(x + width, y,      x + width, y + height, r);
+  ctx.arcTo(x + width, y + height, x,     y + height, r);
+  ctx.arcTo(x,         y + height, x,     y,           r);
+  ctx.arcTo(x,         y,          x + width, y,       r);
   ctx.closePath();
 }
 
 function drawPlayerColumn(ctx, { x, y, width, title, accent, labels, values, fallback }) {
-  const white = "#ffffff";
-  const zinc900 = "#18181b";
-  const zinc100 = "#f4f4f5";
-
   ctx.fillStyle = accent;
   roundRect(ctx, x, y, width, 70, 22);
   ctx.fill();
 
-  ctx.fillStyle = white;
+  ctx.fillStyle = C.white;
   ctx.font = "700 28px Arial";
   ctx.fillText(title, x + 24, y + 44);
 
@@ -338,7 +338,7 @@ function drawPlayerColumn(ctx, { x, y, width, title, accent, labels, values, fal
     const rowY = startY + idx * rowHeight;
     const name = values[idx] || fallback;
 
-    ctx.fillStyle = zinc100;
+    ctx.fillStyle = C.zinc100;
     roundRect(ctx, x, rowY, width, 68, 20);
     ctx.fill();
 
@@ -346,29 +346,23 @@ function drawPlayerColumn(ctx, { x, y, width, title, accent, labels, values, fal
     roundRect(ctx, x + 14, rowY + 12, 58, 44, 14);
     ctx.fill();
 
-    ctx.fillStyle = white;
+    ctx.fillStyle = C.white;
     ctx.font = "700 22px Arial";
     const lw = ctx.measureText(label).width;
     ctx.fillText(label, x + 43 - lw / 2, rowY + 40);
 
-    ctx.fillStyle = zinc900;
+    ctx.fillStyle = C.zinc900;
     ctx.font = "700 26px Arial";
-    const display = name.length > 22 ? `${name.slice(0, 19)}…` : name;
-    ctx.fillText(display, x + 92, rowY + 42);
+    ctx.fillText(name.length > 22 ? `${name.slice(0, 19)}…` : name, x + 92, rowY + 42);
   });
 }
 
 function drawBenchSection(ctx, { x, y, width, title, values }) {
-  const zinc100 = "#f4f4f5";
-  const zinc900 = "#18181b";
-  const zinc500 = "#71717a";
-  const gold = "#facc15";
-
-  ctx.fillStyle = zinc100;
+  ctx.fillStyle = C.zinc100;
   roundRect(ctx, x, y, width, 115, 24);
   ctx.fill();
 
-  ctx.fillStyle = gold;
+  ctx.fillStyle = C.gold;
   roundRect(ctx, x + 20, y + 18, 210, 38, 14);
   ctx.fill();
 
@@ -376,13 +370,12 @@ function drawBenchSection(ctx, { x, y, width, title, values }) {
   ctx.font = "700 20px Arial";
   ctx.fillText(title, x + 36, y + 44);
 
-  ctx.fillStyle = zinc900;
+  ctx.fillStyle = C.zinc900;
   ctx.font = "700 24px Arial";
   const text = values.length > 0 ? values.join(" • ") : "Keine Ersatzspieler festgelegt";
-  const output = text.length > 72 ? `${text.slice(0, 69)}…` : text;
-  ctx.fillText(output, x + 24, y + 88);
+  ctx.fillText(text.length > 72 ? `${text.slice(0, 69)}…` : text, x + 24, y + 88);
 
-  ctx.fillStyle = zinc500;
+  ctx.fillStyle = C.zinc500;
   ctx.font = "500 16px Arial";
   ctx.fillText("WhatsApp-optimiertes Hochformat", x + width - 250, y + 44);
 }
@@ -390,52 +383,36 @@ function drawBenchSection(ctx, { x, y, width, title, values }) {
 function exportLineupAsJpg({ match, team, lineup }) {
   const canvas = document.createElement("canvas");
   const ctx = canvas.getContext("2d");
+  canvas.width = 1080;
+  canvas.height = 1350;
 
-  const width = 1080;
-  const height = 1350;
-  canvas.width = width;
-  canvas.height = height;
-
-  const purple = "#4c1d95";
-  const purpleDark = "#2e1065";
-  const purpleLight = "#ede9fe";
-  const gold = "#facc15";
-  const white = "#ffffff";
-  const zinc900 = "#18181b";
-  const zinc500 = "#71717a";
-  const zinc100 = "#f4f4f5";
-  const emerald = "#059669";
-  const red = "#dc2626";
+  const { width, height } = canvas;
 
   const bg = ctx.createLinearGradient(0, 0, 0, height);
   bg.addColorStop(0, "#3b0764");
-  bg.addColorStop(0.45, "#4c1d95");
+  bg.addColorStop(0.45, C.purple);
   bg.addColorStop(1, "#5b21b6");
   ctx.fillStyle = bg;
   ctx.fillRect(0, 0, width, height);
 
   ctx.globalAlpha = 0.14;
-  ctx.fillStyle = white;
-  ctx.beginPath();
-  ctx.arc(980, 170, 180, 0, Math.PI * 2);
-  ctx.fill();
-  ctx.beginPath();
-  ctx.arc(120, 1180, 220, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.fillStyle = C.white;
+  ctx.beginPath(); ctx.arc(980, 170, 180, 0, Math.PI * 2); ctx.fill();
+  ctx.beginPath(); ctx.arc(120, 1180, 220, 0, Math.PI * 2); ctx.fill();
   ctx.globalAlpha = 1;
 
-  ctx.fillStyle = white;
+  ctx.fillStyle = C.white;
   roundRect(ctx, 52, 52, width - 104, height - 104, 38);
   ctx.fill();
 
   const headerGrad = ctx.createLinearGradient(0, 52, width, 260);
-  headerGrad.addColorStop(0, purpleDark);
-  headerGrad.addColorStop(1, purple);
+  headerGrad.addColorStop(0, C.purpleDark);
+  headerGrad.addColorStop(1, C.purple);
   ctx.fillStyle = headerGrad;
   roundRect(ctx, 52, 52, width - 104, 250, 38);
   ctx.fill();
 
-  ctx.fillStyle = gold;
+  ctx.fillStyle = C.gold;
   roundRect(ctx, 82, 84, 170, 54, 18);
   ctx.fill();
 
@@ -443,91 +420,69 @@ function exportLineupAsJpg({ match, team, lineup }) {
   ctx.font = "700 24px Arial";
   ctx.fillText("LINDEN 07", 111, 118);
 
-  ctx.fillStyle = white;
+  ctx.fillStyle = C.white;
   ctx.font = "700 54px Arial";
-  ctx.fillText("MATCHDAY", 82, 192);
+  ctx.fillText("MATCHDAY",    82, 192);
   ctx.fillText("AUFSTELLUNG", 82, 250);
 
-  ctx.fillStyle = gold;
-  ctx.beginPath();
-  ctx.arc(890, 177, 72, 0, Math.PI * 2);
-  ctx.fill();
+  ctx.fillStyle = C.gold;
+  ctx.beginPath(); ctx.arc(890, 177, 72, 0, Math.PI * 2); ctx.fill();
 
   ctx.fillStyle = "#111111";
   ctx.font = "700 42px Arial";
   const teamNumber = String(team.number || "");
-  const numWidth = ctx.measureText(teamNumber).width;
-  ctx.fillText(teamNumber, 890 - numWidth / 2, 190);
+  ctx.fillText(teamNumber, 890 - ctx.measureText(teamNumber).width / 2, 190);
 
-  ctx.fillStyle = purpleLight;
+  ctx.fillStyle = C.purpleLight;
   roundRect(ctx, 82, 330, width - 164, 130, 28);
   ctx.fill();
 
-  ctx.fillStyle = purple;
+  ctx.fillStyle = C.purple;
   ctx.font = "700 20px Arial";
   ctx.fillText("BEGEGNUNG", 112, 372);
 
-  ctx.fillStyle = zinc900;
+  ctx.fillStyle = C.zinc900;
   ctx.font = "700 40px Arial";
-  const opponent = match.opponent.length > 32 ? `${match.opponent.slice(0, 29)}…` : match.opponent;
-  ctx.fillText(opponent, 112, 425);
+  const opp = match.opponent.length > 32 ? `${match.opponent.slice(0, 29)}…` : match.opponent;
+  ctx.fillText(opp, 112, 425);
 
   const infoY = 490;
   const boxGap = 22;
   const boxWidth = (width - 164 - boxGap * 2) / 3;
 
-  const infoBoxes = [
+  [
     { title: "MANNSCHAFT", value: team.name },
-    { title: "TERMIN", value: `${formatDate(match.date)} · ${match.time} Uhr` },
-    { title: "ORT", value: match.venue === "home" ? "HEIMSPIEL" : "AUSWÄRTSSPIEL" },
-  ];
-
-  infoBoxes.forEach((box, i) => {
+    { title: "TERMIN",     value: `${formatDate(match.date)} · ${match.time} Uhr` },
+    { title: "ORT",        value: match.venue === "home" ? "HEIMSPIEL" : "AUSWÄRTSSPIEL" },
+  ].forEach((box, i) => {
     const x = 82 + i * (boxWidth + boxGap);
-    ctx.fillStyle = zinc100;
+    ctx.fillStyle = C.zinc100;
     roundRect(ctx, x, infoY, boxWidth, 112, 24);
     ctx.fill();
-
-    ctx.fillStyle = zinc500;
+    ctx.fillStyle = C.zinc500;
     ctx.font = "700 17px Arial";
     ctx.fillText(box.title, x + 22, infoY + 34);
-
-    ctx.fillStyle = zinc900;
+    ctx.fillStyle = C.zinc900;
     ctx.font = "700 24px Arial";
-    const value = box.value.length > 24 ? `${box.value.slice(0, 21)}…` : box.value;
-    ctx.fillText(value, x + 22, infoY + 78);
+    const val = box.value.length > 24 ? `${box.value.slice(0, 21)}…` : box.value;
+    ctx.fillText(val, x + 22, infoY + 78);
   });
 
   const sectionTop = 650;
-  const columnGap = 28;
-  const colWidth = (width - 164 - columnGap) / 2;
+  const colWidth = (width - 164 - 28) / 2;
 
   drawPlayerColumn(ctx, {
-    x: 82,
-    y: sectionTop,
-    width: colWidth,
-    title: "EINZEL",
-    accent: purple,
-    labels: ["E1", "E2", "E3", "E4"],
-    values: lineup.singles,
-    fallback: "Noch offen",
+    x: 82, y: sectionTop, width: colWidth,
+    title: "EINZEL", accent: C.purple,
+    labels: ["E1", "E2", "E3", "E4"], values: lineup.singles, fallback: "Noch offen",
   });
-
   drawPlayerColumn(ctx, {
-    x: 82 + colWidth + columnGap,
-    y: sectionTop,
-    width: colWidth,
-    title: "DOPPEL",
-    accent: purpleDark,
-    labels: ["D1", "D2", "D3", "D4"],
-    values: lineup.doubles,
-    fallback: "Noch offen",
+    x: 82 + colWidth + 28, y: sectionTop, width: colWidth,
+    title: "DOPPEL", accent: C.purpleDark,
+    labels: ["D1", "D2", "D3", "D4"], values: lineup.doubles, fallback: "Noch offen",
   });
-
   drawBenchSection(ctx, {
-    x: 82,
-    y: 1045,
-    width: width - 164,
+    x: 82, y: 1045, width: width - 164,
     title: "ERSATZ / OPTIONEN",
     values: lineup.bench.filter(Boolean),
   });
@@ -539,32 +494,42 @@ function exportLineupAsJpg({ match, team, lineup }) {
   roundRect(ctx, 82, 1190, width - 164, 70, 22);
   ctx.fill();
 
-  ctx.fillStyle = isComplete ? emerald : red;
+  ctx.fillStyle = isComplete ? C.emerald : C.red;
   ctx.font = "700 24px Arial";
   ctx.fillText(
-    isComplete ? "Aufstellung vollständig gesetzt" : `Aufstellung unvollständig (${selectedCount}/8 gesetzt)`,
-    112,
-    1234
+    isComplete
+      ? "Aufstellung vollständig gesetzt"
+      : `Aufstellung unvollständig (${selectedCount}/8 gesetzt)`,
+    112, 1234
   );
 
-  ctx.fillStyle = zinc500;
+  ctx.fillStyle = C.zinc500;
   ctx.font = "500 18px Arial";
   ctx.fillText("Erstellt mit dem Linden 07 Tennisplaner", 82, 1305);
 
   const link = document.createElement("a");
-  const filename = [
+  link.download = [
     "aufstellung-share",
     slugifyFilePart(team.name),
     slugifyFilePart(match.opponent),
     match.date,
-  ].filter(Boolean).join("-");
-
-  link.download = `${filename}.jpg`;
+  ].filter(Boolean).join("-") + ".jpg";
   link.href = canvas.toDataURL("image/jpeg", 0.94);
   link.click();
 }
 
 // ─── UI-Komponenten ───────────────────────────────────────────────────────────
+
+function Chevron({ open }) {
+  return (
+    <svg
+      className={`h-4 w-4 shrink-0 text-zinc-300 transition-transform ${open ? "rotate-180" : ""}`}
+      fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
+    >
+      <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+    </svg>
+  );
+}
 
 function Badge({ children, variant = "default" }) {
   const styles = {
@@ -597,22 +562,13 @@ function AvailabilityPicker({ value, onChange }) {
     { value: "available-both",    label: "Beides",      activeClass: "bg-violet-900 border-violet-900 text-white"      },
     { value: "unavailable",       label: "Nicht dabei", activeClass: "bg-zinc-800 border-zinc-800 text-white"          },
   ];
-
-  function handleOptionClick(nextValue) {
-    if (value === nextValue) {
-      onChange(DEFAULT_RESPONSE);
-      return;
-    }
-    onChange(nextValue);
-  }
-
   return (
     <div className="grid grid-cols-2 gap-2">
       {options.map((opt) => (
         <button
           key={opt.value}
           type="button"
-          onClick={() => handleOptionClick(opt.value)}
+          onClick={() => onChange(value === opt.value ? DEFAULT_RESPONSE : opt.value)}
           className={`rounded-2xl border-2 py-3.5 text-sm font-semibold transition-all active:scale-95 ${
             value === opt.value ? opt.activeClass : "border-zinc-200 bg-white text-zinc-600 active:bg-zinc-50"
           }`}
@@ -654,22 +610,17 @@ export default function App() {
   const [saving, setSaving]                 = useState(false);
   const [activeTab, setActiveTab]           = useState("kalender");
   const [authorizedCaptains, setAuthorizedCaptains] = useState({});
+  const saveTimer = useRef({});
 
-  const allPlayers = useMemo(() => getAllPlayers(), []);
   const isCaptainSelection = CAPTAIN_OPTIONS.some((c) => c.label === selectedPlayer);
-  const isCaptainView = isCaptainSelection && authorizedCaptains[selectedPlayer] === true;
-  const hasSelection  = Boolean(selectedPlayer);
+  const isCaptainView      = isCaptainSelection && authorizedCaptains[selectedPlayer] === true;
+  const hasSelection       = Boolean(selectedPlayer);
 
   useEffect(() => {
     let cancelled = false;
-
-    Promise.allSettled([
-      fetchJsonSafe("/api/responses"),
-      fetchJsonSafe("/api/lineups"),
-    ])
+    Promise.allSettled([fetchJsonSafe("/api/responses"), fetchJsonSafe("/api/lineups")])
       .then(([responsesResult, lineupsResult]) => {
         if (cancelled) return;
-
         if (responsesResult.status === "fulfilled") {
           const data = responsesResult.value;
           if (data && Object.keys(data).length > 0) {
@@ -682,7 +633,6 @@ export default function App() {
             });
           }
         }
-
         if (lineupsResult.status === "fulfilled") {
           const data = lineupsResult.value;
           if (data && Object.keys(data).length > 0) {
@@ -697,55 +647,39 @@ export default function App() {
         }
       })
       .catch(() => {})
-      .finally(() => {
-        if (!cancelled) setLoading(false);
-      });
-
+      .finally(() => { if (!cancelled) setLoading(false); });
     return () => { cancelled = true; };
   }, []);
 
   function handlePlayerChange(name) {
-    if (!name) {
-      setSelectedPlayer("");
-      setActiveTab("kalender");
-      return;
-    }
+    if (!name) { setSelectedPlayer(""); setActiveTab("kalender"); return; }
 
-    const isCaptainChoice = CAPTAIN_OPTIONS.some((c) => c.label === name);
-
-    if (isCaptainChoice) {
-      if (authorizedCaptains[name]) {
-        setSelectedPlayer(name);
-        setActiveTab("kapitaen");
-        return;
-      }
-
+    const isCaptain = CAPTAIN_OPTIONS.some((c) => c.label === name);
+    if (isCaptain) {
+      if (authorizedCaptains[name]) { setSelectedPlayer(name); setActiveTab("kapitaen"); return; }
       const pin = window.prompt(`PIN für ${name} eingeben:`);
-
       if (pin === null) return;
-
-      if (pin !== CAPTAIN_PIN) {
-        window.alert("Falscher PIN.");
-        return;
-      }
-
+      if (pin !== CAPTAIN_PIN) { window.alert("Falscher PIN."); return; }
       setAuthorizedCaptains((prev) => ({ ...prev, [name]: true }));
       setSelectedPlayer(name);
       setActiveTab("kapitaen");
       return;
     }
-
     setSelectedPlayer(name);
     setActiveTab("kalender");
   }
 
+  // Debounced: verhindert API-Spam bei schnellen Klicks
   function persistTo(url, payload) {
+    clearTimeout(saveTimer.current[url]);
     setSaving(true);
-    fetch(url, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    }).catch(() => {}).finally(() => setSaving(false));
+    saveTimer.current[url] = setTimeout(() => {
+      fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }).catch(() => {}).finally(() => setSaving(false));
+    }, 600);
   }
 
   function saveResponse(matchId, playerName, value) {
@@ -766,15 +700,20 @@ export default function App() {
 
   const visibleTeams = useMemo(() => {
     if (!selectedPlayer || isCaptainView) return TEAMS;
-    const player  = allPlayers.find((p) => p.name === selectedPlayer);
-    const teamIds = new Set(player?.teams || []);
+    const teamIds = new Set(ALL_PLAYERS.find((p) => p.name === selectedPlayer)?.teams || []);
     return TEAMS.filter((t) => teamIds.has(t.id));
-  }, [selectedPlayer, isCaptainView, allPlayers]);
+  }, [selectedPlayer, isCaptainView]);
 
   const boardMatches = useMemo(
     () => sortByDate(visibleTeams.flatMap((t) => t.matches.map((m) => ({ ...m, teamId: t.id, teamName: t.name })))),
     [visibleTeams]
   );
+
+  const tabs = useMemo(() => [
+    ...(isCaptainView ? [{ id: "kapitaen", label: "Übersicht" }] : []),
+    { id: "kalender", label: "Kalender" },
+    { id: "spieler",  label: "Spieler"  },
+  ], [isCaptainView]);
 
   if (loading) {
     return (
@@ -787,12 +726,6 @@ export default function App() {
     );
   }
 
-  const tabs = [
-    ...(isCaptainView ? [{ id: "kapitaen", label: "Übersicht" }] : []),
-    { id: "kalender", label: "Kalender" },
-    { id: "spieler",  label: "Spieler"  },
-  ];
-
   return (
     <div className="min-h-screen bg-zinc-50 text-zinc-900">
 
@@ -802,7 +735,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Sticky Header */}
       <header className="sticky top-0 z-40 border-b border-zinc-200 bg-white/95 backdrop-blur-sm">
         <div className="mx-auto max-w-2xl px-4">
           <div className="flex items-center gap-3 py-3">
@@ -816,10 +748,10 @@ export default function App() {
               className="h-10 rounded-xl border border-zinc-200 bg-zinc-50 px-3 text-sm font-medium text-zinc-800 outline-none focus:border-violet-400 focus:bg-white"
             >
               <option value="">Name wählen…</option>
-              {CAPTAIN_OPTIONS.map((captain) => (
-                <option key={captain.id} value={captain.label}>👑 {captain.label}</option>
+              {CAPTAIN_OPTIONS.map((c) => (
+                <option key={c.id} value={c.label}>👑 {c.label}</option>
               ))}
-              {allPlayers.map((p) => (
+              {ALL_PLAYERS.map((p) => (
                 <option key={p.name} value={p.name}>{p.name}</option>
               ))}
             </select>
@@ -833,9 +765,7 @@ export default function App() {
                   type="button"
                   onClick={() => setActiveTab(tab.id)}
                   className={`rounded-lg px-4 py-1.5 text-sm font-semibold transition-all ${
-                    activeTab === tab.id
-                      ? "bg-violet-900 text-white"
-                      : "text-zinc-400 hover:text-zinc-700"
+                    activeTab === tab.id ? "bg-violet-900 text-white" : "text-zinc-400 hover:text-zinc-700"
                   }`}
                 >
                   {tab.label}
@@ -847,7 +777,6 @@ export default function App() {
       </header>
 
       <main className="mx-auto max-w-2xl space-y-3 px-4 pb-16 pt-4">
-
         {!hasSelection && (
           <div className="rounded-3xl bg-white px-6 py-12 text-center shadow-sm">
             <div className="text-5xl">🎾</div>
@@ -880,7 +809,6 @@ export default function App() {
             saveLineup={saveLineup}
           />
         )}
-
       </main>
     </div>
   );
@@ -889,18 +817,18 @@ export default function App() {
 // ─── Kalender Tab ─────────────────────────────────────────────────────────────
 
 function KalenderTab({ visibleTeams, responses, selectedPlayer, isCaptainView, saveResponse }) {
-  const allMatches = sortByDate(
-    visibleTeams.flatMap((t) =>
-      t.matches.map((m) => ({ ...m, teamId: t.id, teamName: t.name, teamNumber: t.number }))
-    )
-  );
-
-  const byMonth = allMatches.reduce((acc, m) => {
-    const key = formatMonth(m.date);
-    acc[key] = acc[key] || [];
-    acc[key].push(m);
-    return acc;
-  }, {});
+  const byMonth = useMemo(() => {
+    const allMatches = sortByDate(
+      visibleTeams.flatMap((t) =>
+        t.matches.map((m) => ({ ...m, teamId: t.id, teamName: t.name, teamNumber: t.number }))
+      )
+    );
+    return allMatches.reduce((acc, m) => {
+      const key = formatMonth(m.date);
+      (acc[key] = acc[key] || []).push(m);
+      return acc;
+    }, {});
+  }, [visibleTeams]);
 
   return (
     <div className="space-y-5">
@@ -927,23 +855,21 @@ function KalenderTab({ visibleTeams, responses, selectedPlayer, isCaptainView, s
 }
 
 function MatchCard({ match, team, responses, selectedPlayer, isCaptainView, saveResponse }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen]               = useState(false);
   const [editingPlayer, setEditingPlayer] = useState(null);
   const counts  = getCounts(match.id, responses);
   const traffic = getTrafficLight(counts.totalAvailable);
   const myValue = responses[match.id]?.[selectedPlayer] || DEFAULT_RESPONSE;
 
-  const availableNames = Object.entries(responses[match.id] || {})
-    .filter(([, v]) => typeof v === "string" && v.startsWith("available"))
-    .map(([name]) => name);
-
-  function handleCaptainChange(playerName, value) {
-    saveResponse(match.id, playerName, value);
-  }
+  const availableNames = useMemo(
+    () => Object.entries(responses[match.id] || {})
+      .filter(([, v]) => v?.startsWith("available"))
+      .map(([name]) => name),
+    [responses, match.id]
+  );
 
   return (
     <div className="overflow-hidden rounded-2xl bg-white shadow-sm">
-      {/* Kompakt-Zeile – immer sichtbar */}
       <button
         type="button"
         onClick={() => setOpen((o) => !o)}
@@ -952,14 +878,12 @@ function MatchCard({ match, team, responses, selectedPlayer, isCaptainView, save
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-violet-100 text-sm font-black text-violet-900">
           {match.teamNumber}
         </div>
-
         <div className="min-w-0 flex-1">
           <div className="truncate text-sm font-bold">{match.opponent}</div>
           <div className="truncate text-xs text-zinc-400">
-            {formatDate(match.date)} · {match.time} · {match.venue === "home" ? "Heim" : "Auswärts"}
+            {formatDate(match.date)}{match.time ? ` · ${match.time}` : ""} · {match.venue === "home" ? "Heim" : "Auswärts"}
           </div>
         </div>
-
         <div className="flex shrink-0 flex-col items-end gap-1">
           <div className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold ${traffic.bg} ${traffic.text}`}>
             <span className={`h-1.5 w-1.5 rounded-full ${traffic.dot}`} />
@@ -967,23 +891,14 @@ function MatchCard({ match, team, responses, selectedPlayer, isCaptainView, save
           </div>
           {!isCaptainView && myValue !== "open" && <ResponseBadge value={myValue} />}
         </div>
-
-        <svg
-          className={`h-4 w-4 shrink-0 text-zinc-300 transition-transform ${open ? "rotate-180" : ""}`}
-          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-        </svg>
+        <Chevron open={open} />
       </button>
 
       {open && (
         <div className="space-y-4 border-t border-zinc-100 px-4 pb-5 pt-4">
-
           {!isCaptainView && (
             <div>
-              <div className="mb-2.5 text-xs font-bold uppercase tracking-widest text-zinc-400">
-                Deine Verfügbarkeit
-              </div>
+              <div className="mb-2.5 text-xs font-bold uppercase tracking-widest text-zinc-400">Deine Verfügbarkeit</div>
               <AvailabilityPicker
                 value={myValue}
                 onChange={(v) => saveResponse(match.id, selectedPlayer, v)}
@@ -1018,7 +933,6 @@ function MatchCard({ match, team, responses, selectedPlayer, isCaptainView, save
                 {[...team.starters, ...team.reserves].map((p) => {
                   const v = responses[match.id]?.[p.name] || DEFAULT_RESPONSE;
                   const isEditing = editingPlayer === p.name;
-
                   return (
                     <div key={p.name} className="rounded-xl bg-zinc-50">
                       <button
@@ -1029,15 +943,9 @@ function MatchCard({ match, team, responses, selectedPlayer, isCaptainView, save
                         <span className="text-sm font-medium">{p.name}{p.captain ? " 👑" : ""}</span>
                         <div className="flex items-center gap-2">
                           <ResponseBadge value={v} />
-                          <svg
-                            className={`h-4 w-4 text-zinc-300 transition-transform ${isEditing ? "rotate-180" : ""}`}
-                            fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
-                          >
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-                          </svg>
+                          <Chevron open={isEditing} />
                         </div>
                       </button>
-
                       {isEditing && (
                         <div className="border-t border-zinc-200 px-3 pb-3 pt-3">
                           <div className="mb-2 text-[11px] font-bold uppercase tracking-widest text-zinc-400">
@@ -1045,7 +953,7 @@ function MatchCard({ match, team, responses, selectedPlayer, isCaptainView, save
                           </div>
                           <AvailabilityPicker
                             value={v}
-                            onChange={(nextValue) => handleCaptainChange(p.name, nextValue)}
+                            onChange={(nextValue) => saveResponse(match.id, p.name, nextValue)}
                           />
                         </div>
                       )}
@@ -1095,11 +1003,12 @@ function SpielerTab({ visibleTeams }) {
 }
 
 function PlayerGroup({ label, players }) {
+  const sorted = useMemo(() => [...players].sort((a, b) => a.lk - b.lk), [players]);
   return (
     <div>
       <div className="mb-2 text-xs font-bold uppercase tracking-widest text-zinc-400">{label}</div>
       <div className="space-y-1">
-        {[...players].sort((a, b) => a.lk - b.lk).map((p, i) => (
+        {sorted.map((p, i) => (
           <div key={p.name} className="flex items-center gap-3 rounded-xl bg-zinc-50 px-3 py-2.5">
             <span className="w-5 text-center text-xs font-bold text-zinc-300">{i + 1}</span>
             <span className="flex-1 text-sm font-medium">{p.name}{p.captain ? " 👑" : ""}</span>
@@ -1121,15 +1030,13 @@ function KapitaenTab({ boardMatches, responses, lineups, saveLineup }) {
         <div className="text-xs text-violet-400 mt-0.5">Empfehlungen, finale Aufstellungen und JPG-Export</div>
       </div>
       {boardMatches.map((match) => {
-        const team = TEAMS.find((t) => t.id === match.teamId);
-        const rec  = buildRecommendation(team, match.id, responses);
+        const team   = TEAMS.find((t) => t.id === match.teamId);
         const lineup = normalizeLineup(lineups[match.id]);
         return (
           <MatchRecommendation
             key={match.id}
             match={match}
             team={team}
-            rec={rec}
             responses={responses}
             lineup={lineup}
             saveLineup={saveLineup}
@@ -1140,35 +1047,34 @@ function KapitaenTab({ boardMatches, responses, lineups, saveLineup }) {
   );
 }
 
-function MatchRecommendation({ match, team, rec, responses, lineup, saveLineup }) {
+function MatchRecommendation({ match, team, responses, lineup, saveLineup }) {
   const [open, setOpen] = useState(true);
-  const traffic = getTrafficLight(rec.totalSelected);
-  const lineupCount = getLineupCompletionCount(lineup);
+
+  const rec = useMemo(
+    () => buildRecommendation(team, match.id, responses),
+    [team, match.id, responses]
+  );
   const roster = useMemo(
     () => getTeamRosterForMatch(team, match.id, responses),
     [team, match.id, responses]
   );
 
-  function updateLineupSection(section, index, value) {
-    const next = normalizeLineup(lineup);
-    next[section][index] = value;
-    saveLineup(match.id, next);
-  }
+  const traffic     = getTrafficLight(rec.totalSelected);
+  const lineupCount = getLineupCompletionCount(lineup);
 
-  function resetLineup() {
-    saveLineup(match.id, createEmptyLineup());
+  function updateLineupSection(section, index, value) {
+    saveLineup(match.id, {
+      ...lineup,
+      [section]: lineup[section].map((v, i) => (i === index ? value : v)),
+    });
   }
 
   function applyRecommendation() {
     saveLineup(match.id, {
-      singles: [0, 1, 2, 3].map((i) => rec.singles[i]?.name || ""),
-      doubles: [0, 1, 2, 3].map((i) => rec.doubles[i]?.name || ""),
-      bench:   [0, 1, 2, 3].map((i) => rec.bench[i]?.name || ""),
+      singles: rec.singles.map((p) => p.name),
+      doubles: rec.doubles.map((p) => p.name),
+      bench:   rec.bench.slice(0, 4).map((p) => p.name),
     });
-  }
-
-  function handleExport() {
-    exportLineupAsJpg({ match, team, lineup });
   }
 
   return (
@@ -1181,7 +1087,9 @@ function MatchRecommendation({ match, team, rec, responses, lineup, saveLineup }
         <div className="flex-1 min-w-0">
           <div className="font-bold text-sm">{match.teamName}</div>
           <div className="truncate text-sm text-zinc-600">{match.opponent}</div>
-          <div className="text-xs text-zinc-400">{formatDate(match.date)} · {match.time} Uhr · {match.venue === "home" ? "Heimspiel" : "Auswärtsspiel"}</div>
+          <div className="text-xs text-zinc-400">
+            {formatDate(match.date)}{match.time ? ` · ${match.time} Uhr` : ""} · {match.venue === "home" ? "Heimspiel" : "Auswärtsspiel"}
+          </div>
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
           <div className={`flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-bold ${traffic.bg} ${traffic.text}`}>
@@ -1198,27 +1106,18 @@ function MatchRecommendation({ match, team, rec, responses, lineup, saveLineup }
             </Badge>
           </div>
         </div>
-        <svg
-          className={`h-4 w-4 shrink-0 text-zinc-300 transition-transform ${open ? "rotate-180" : ""}`}
-          fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-        </svg>
+        <Chevron open={open} />
       </button>
 
       {open && (
         <div className="space-y-5 border-t border-zinc-100 px-4 pb-5 pt-4">
 
           <RecSection title="Empfohlene Einzel" empty="Noch keine belastbare Einzel-Besetzung.">
-            {rec.singles.map((p, i) => (
-              <PlayerRow key={p.name} prefix={`E${i + 1}`} player={p} />
-            ))}
+            {rec.singles.map((p, i) => <PlayerRow key={p.name} prefix={`E${i + 1}`} player={p} />)}
           </RecSection>
 
           <RecSection title="Empfohlene Doppel" empty="Noch keine belastbare Doppel-Besetzung.">
-            {rec.doubles.map((p, i) => (
-              <PlayerRow key={p.name} prefix={`D${i + 1}`} player={p} />
-            ))}
+            {rec.doubles.map((p, i) => <PlayerRow key={p.name} prefix={`D${i + 1}`} player={p} />)}
           </RecSection>
 
           {rec.doublePairs.length > 0 && (
@@ -1260,14 +1159,14 @@ function MatchRecommendation({ match, team, rec, responses, lineup, saveLineup }
               </button>
               <button
                 type="button"
-                onClick={resetLineup}
+                onClick={() => saveLineup(match.id, createEmptyLineup())}
                 className="rounded-xl border border-zinc-200 bg-white px-4 py-2.5 text-sm font-semibold text-zinc-700 transition active:scale-95"
               >
                 Aufstellung zurücksetzen
               </button>
               <button
                 type="button"
-                onClick={handleExport}
+                onClick={() => exportLineupAsJpg({ match, team, lineup })}
                 className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-700 transition active:scale-95"
               >
                 Share-Grafik als JPG
@@ -1276,35 +1175,19 @@ function MatchRecommendation({ match, team, rec, responses, lineup, saveLineup }
 
             <div className="grid gap-4 md:grid-cols-2">
               <LineupSection
-                title="Einzel"
-                sectionKey="singles"
-                labels={["E1", "E2", "E3", "E4"]}
-                values={lineup.singles}
-                players={roster}
-                lineup={lineup}
-                onChange={updateLineupSection}
+                title="Einzel" sectionKey="singles" labels={["E1", "E2", "E3", "E4"]}
+                values={lineup.singles} players={roster} lineup={lineup} onChange={updateLineupSection}
               />
-
               <LineupSection
-                title="Doppel"
-                sectionKey="doubles"
-                labels={["D1", "D2", "D3", "D4"]}
-                values={lineup.doubles}
-                players={roster}
-                lineup={lineup}
-                onChange={updateLineupSection}
+                title="Doppel" sectionKey="doubles" labels={["D1", "D2", "D3", "D4"]}
+                values={lineup.doubles} players={roster} lineup={lineup} onChange={updateLineupSection}
               />
             </div>
 
             <div className="mt-4">
               <LineupSection
-                title="Ersatzbank"
-                sectionKey="bench"
-                labels={["Bank 1", "Bank 2", "Bank 3", "Bank 4"]}
-                values={lineup.bench}
-                players={roster}
-                lineup={lineup}
-                onChange={updateLineupSection}
+                title="Ersatzbank" sectionKey="bench" labels={["Bank 1", "Bank 2", "Bank 3", "Bank 4"]}
+                values={lineup.bench} players={roster} lineup={lineup} onChange={updateLineupSection}
               />
             </div>
 
@@ -1315,16 +1198,14 @@ function MatchRecommendation({ match, team, rec, responses, lineup, saveLineup }
                   {lineupCount}/8 gesetzt
                 </Badge>
               </div>
-
               <div className="space-y-3">
                 <PreviewMeta match={match} team={team} />
                 <PreviewLine title="Einzel" values={lineup.singles} responses={responses[match.id] || {}} />
                 <PreviewLine title="Doppel" values={lineup.doubles} responses={responses[match.id] || {}} />
-                <PreviewLine title="Bank" values={lineup.bench} responses={responses[match.id] || {}} />
+                <PreviewLine title="Bank"   values={lineup.bench}   responses={responses[match.id] || {}} />
               </div>
             </div>
           </div>
-
         </div>
       )}
     </div>
@@ -1336,19 +1217,15 @@ function LineupSection({ title, sectionKey, labels, values, players, lineup, onC
     <div className="rounded-2xl border border-zinc-200 bg-zinc-50 p-3">
       <div className="mb-3 text-xs font-bold uppercase tracking-widest text-zinc-400">{title}</div>
       <div className="grid gap-3">
-        {labels.map((label, index) => {
-          const currentValue = values[index];
-          const options = getLineupSelectOptions(players, lineup, currentValue);
-          return (
-            <LineupSelect
-              key={`${sectionKey}-${index}`}
-              label={label}
-              value={currentValue}
-              onChange={(value) => onChange(sectionKey, index, value)}
-              options={options}
-            />
-          );
-        })}
+        {labels.map((label, index) => (
+          <LineupSelect
+            key={`${sectionKey}-${index}`}
+            label={label}
+            value={values[index]}
+            onChange={(value) => onChange(sectionKey, index, value)}
+            options={getLineupSelectOptions(players, lineup, values[index])}
+          />
+        ))}
       </div>
     </div>
   );
@@ -1360,7 +1237,7 @@ function PreviewMeta({ match, team }) {
       <div className="text-sm font-bold">{team.name}</div>
       <div className="text-sm text-zinc-600">{match.opponent}</div>
       <div className="mt-1 text-xs text-zinc-400">
-        {formatDate(match.date)} · {match.time} Uhr · {match.venue === "home" ? "Heimspiel" : "Auswärtsspiel"}
+        {formatDate(match.date)}{match.time ? ` · ${match.time} Uhr` : ""} · {match.venue === "home" ? "Heimspiel" : "Auswärtsspiel"}
       </div>
     </div>
   );
@@ -1392,10 +1269,7 @@ function RecSection({ title, empty, children }) {
   return (
     <div>
       <div className="mb-2 text-xs font-bold uppercase tracking-widest text-zinc-400">{title}</div>
-      {hasChildren
-        ? <div className="space-y-1">{children}</div>
-        : <p className="text-sm text-zinc-400">{empty}</p>
-      }
+      {hasChildren ? <div className="space-y-1">{children}</div> : <p className="text-sm text-zinc-400">{empty}</p>}
     </div>
   );
 }
