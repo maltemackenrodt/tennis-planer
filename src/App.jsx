@@ -60,7 +60,6 @@ const TEAMS = [
       { name: "Malte Mackenrodt",    lk: 23.4, captain: true },
       { name: "Resit Bekfilavioglu", lk: 23.9 },
       { name: "Jörn Nikisch",        lk: 25.0 },
-      { name: "Jan Broja",           lk: 25.0 },
     ],
     reserves: [
       { name: "Olaf Stach",        lk: 13.9 },
@@ -72,6 +71,8 @@ const TEAMS = [
       { name: "Mario Gangale",     lk: 23.9 },
       { name: "Van Loc Nguyen",    lk: 24.7 },
       { name: "Tobias Schirmer",   lk: 25.0 },
+      { name: "Dennis Maring",     lk: 25.0 },
+      { name: "Uwe Rosin",         lk: 25.0 },
     ],
   },
 ];
