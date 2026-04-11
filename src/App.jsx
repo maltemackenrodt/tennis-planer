@@ -6,7 +6,6 @@ const DEFAULT_RESPONSE = "open";
 const CAPTAIN_PIN = "1907";
 
 const CAPTAIN_OPTIONS = [
-  { id: "captain-mehmet", label: "Capitano Mehmet" },
   { id: "captain-henning", label: "Capitano Henning" },
   { id: "captain-malte", label: "Capitano Malte" },
 ];
@@ -73,37 +72,6 @@ const TEAMS = [
       { name: "Mario Gangale",     lk: 23.9 },
       { name: "Van Loc Nguyen",    lk: 24.7 },
       { name: "Tobias Schirmer",   lk: 25.0 },
-    ],
-  },
-  {
-    id: "h50", number: 50, name: "50er Herren", captain: "Mehmet Asci",
-    league: "Herren 50 · Bezirksklasse Gr. 501",
-    matches: [
-      { id: "h50-1", date: "2026-05-10", time: "10:00", venue: "home", opponent: "Tennisverein Berenbostel II" },
-      { id: "h50-2", date: "2026-05-31", time: "10:00", venue: "home", opponent: "TC Meerbeck" },
-      { id: "h50-3", date: "2026-06-20", time: "14:00", venue: "home", opponent: "TSG Emmerthal" },
-      { id: "h50-4", date: "2026-08-16", time: "",      venue: "away", opponent: "TC GRE Hildesheim" },
-      { id: "h50-5", date: "2026-08-29", time: "11:00", venue: "away", opponent: "VSV Hohenbostel" },
-    ],
-    starters: [
-      { name: "Olaf Stach",      lk: 13.9 },
-      { name: "Christian Bruns", lk: 14.3 },
-      { name: "Mehmet Asci",     lk: 14.4, captain: true },
-      { name: "Patrick Smith",   lk: 15.9 },
-      { name: "Christian Stieg", lk: 18.5 },
-      { name: "Phuoc Dat Luu",   lk: 21.1 },
-    ],
-    reserves: [
-      { name: "Hoang Phong Tran",    lk: 21.9 },
-      { name: "Thomas Bothor",       lk: 22.5 },
-      { name: "Mario Gangale",       lk: 23.9 },
-      { name: "Resit Bekfilavioglu", lk: 23.9 },
-      { name: "Van Loc Nguyen",      lk: 24.7 },
-      { name: "Jan Broja",           lk: 25.0 },
-      { name: "Tobias Schirmer",     lk: 25.0 },
-      { name: "Lutz Discher",        lk: 25.0 },
-      { name: "Alexander Wojtczak",  lk: 25.0 },
-      { name: "Uwe Rosin",           lk: 25.0 },
     ],
   },
 ];
