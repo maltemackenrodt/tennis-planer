@@ -5,10 +5,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 const DEFAULT_RESPONSE = "open";
 const CAPTAIN_PIN = "1907";
 
-const CAPTAIN_OPTIONS = [
-  { id: "captain-henning", label: "Capitano Henning" },
-  { id: "captain-malte", label: "Capitano Malte" },
-];
+const CAPTAIN_OPTIONS = ["Capitano Henning", "Capitano Malte"];
 
 const TEAMS = [
   {
@@ -165,14 +162,16 @@ function buildInitialLineups() {
 }
 
 function getCounts(matchId, responses) {
-  const values = Object.values(responses[matchId] || {});
-  return {
-    both:           values.filter((v) => v === "available-both").length,
-    singles:        values.filter((v) => v === "available-singles").length,
-    doubles:        values.filter((v) => v === "available-doubles").length,
-    unavailable:    values.filter((v) => v === "unavailable").length,
-    totalAvailable: values.filter((v) => v?.startsWith("available")).length,
-  };
+  return Object.values(responses[matchId] || {}).reduce(
+    (acc, v) => {
+      if (v === "available-both")    { acc.both++;    acc.totalAvailable++; }
+      else if (v === "available-singles") { acc.singles++; acc.totalAvailable++; }
+      else if (v === "available-doubles") { acc.doubles++; acc.totalAvailable++; }
+      else if (v === "unavailable")  { acc.unavailable++; }
+      return acc;
+    },
+    { both: 0, singles: 0, doubles: 0, unavailable: 0, totalAvailable: 0 }
+  );
 }
 
 function getTrafficLight(total) {
@@ -215,8 +214,9 @@ function buildRecommendation(team, matchId, responses) {
     if (!doubles.some((d) => d.name === p.name) && !singles.some((s) => s.name === p.name)) doubles.push(p);
   }
 
-  const bench = pool.filter((p) => ![...singles, ...doubles].some((s) => s.name === p.name));
-  const sd = [...doubles].sort((a, b) => a.lk - b.lk);
+  const placed = new Set([...singles, ...doubles].map((p) => p.name));
+  const bench  = pool.filter((p) => !placed.has(p.name));
+  const sd     = [...doubles].sort((a, b) => a.lk - b.lk);
 
   return {
     singles,
@@ -224,7 +224,7 @@ function buildRecommendation(team, matchId, responses) {
     bench,
     doublePairs:     sd.length >= 4 ? [[sd[0], sd[3]], [sd[1], sd[2]]] : [],
     totalSelected:   singles.length + doubles.length,
-    captainIncluded: [...singles, ...doubles].some((p) => p.captain),
+    captainIncluded: singles.some((p) => p.captain) || doubles.some((p) => p.captain),
     complete:        singles.length === 4 && doubles.length === 4,
   };
 }
@@ -261,7 +261,7 @@ function getLineupSelectOptions(players, lineup, currentValue) {
 }
 
 function getLineupCompletionCount(lineup) {
-  return [...lineup.singles, ...lineup.doubles].filter(Boolean).length;
+  return lineup.singles.filter(Boolean).length + lineup.doubles.filter(Boolean).length;
 }
 
 function slugifyFilePart(text) {
@@ -489,6 +489,22 @@ function exportLineupAsJpg({ match, team, lineup }) {
 
 // ─── UI-Komponenten ───────────────────────────────────────────────────────────
 
+const BADGE_STYLES = {
+  default: "border-violet-100 bg-violet-50 text-violet-800",
+  muted:   "border-zinc-200 bg-zinc-50 text-zinc-500",
+  black:   "border-black bg-black text-white",
+  green:   "border-emerald-200 bg-emerald-50 text-emerald-700",
+  red:     "border-red-200 bg-red-50 text-red-700",
+  amber:   "border-amber-200 bg-amber-50 text-amber-700",
+};
+
+const PICKER_OPTIONS = [
+  { value: "available-singles", label: "Einzel",      activeClass: "bg-violet-100 border-violet-400 text-violet-900" },
+  { value: "available-doubles", label: "Doppel",      activeClass: "bg-violet-100 border-violet-400 text-violet-900" },
+  { value: "available-both",    label: "Beides",      activeClass: "bg-violet-900 border-violet-900 text-white"      },
+  { value: "unavailable",       label: "Nicht dabei", activeClass: "bg-zinc-800 border-zinc-800 text-white"          },
+];
+
 function Chevron({ open }) {
   return (
     <svg
@@ -501,16 +517,8 @@ function Chevron({ open }) {
 }
 
 function Badge({ children, variant = "default" }) {
-  const styles = {
-    default: "border-violet-100 bg-violet-50 text-violet-800",
-    muted:   "border-zinc-200 bg-zinc-50 text-zinc-500",
-    black:   "border-black bg-black text-white",
-    green:   "border-emerald-200 bg-emerald-50 text-emerald-700",
-    red:     "border-red-200 bg-red-50 text-red-700",
-    amber:   "border-amber-200 bg-amber-50 text-amber-700",
-  };
   return (
-    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${styles[variant]}`}>
+    <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium ${BADGE_STYLES[variant]}`}>
       {children}
     </span>
   );
@@ -525,15 +533,9 @@ function ResponseBadge({ value }) {
 }
 
 function AvailabilityPicker({ value, onChange }) {
-  const options = [
-    { value: "available-singles", label: "Einzel",      activeClass: "bg-violet-100 border-violet-400 text-violet-900" },
-    { value: "available-doubles", label: "Doppel",      activeClass: "bg-violet-100 border-violet-400 text-violet-900" },
-    { value: "available-both",    label: "Beides",      activeClass: "bg-violet-900 border-violet-900 text-white"      },
-    { value: "unavailable",       label: "Nicht dabei", activeClass: "bg-zinc-800 border-zinc-800 text-white"          },
-  ];
   return (
     <div className="grid grid-cols-2 gap-2">
-      {options.map((opt) => (
+      {PICKER_OPTIONS.map((opt) => (
         <button
           key={opt.value}
           type="button"
@@ -581,7 +583,7 @@ export default function App() {
   const [authorizedCaptains, setAuthorizedCaptains] = useState({});
   const saveTimer = useRef({});
 
-  const isCaptainSelection = CAPTAIN_OPTIONS.some((c) => c.label === selectedPlayer);
+  const isCaptainSelection = CAPTAIN_OPTIONS.includes(selectedPlayer);
   const isCaptainView      = isCaptainSelection && authorizedCaptains[selectedPlayer] === true;
   const hasSelection       = Boolean(selectedPlayer);
 
@@ -623,7 +625,7 @@ export default function App() {
   function handlePlayerChange(name) {
     if (!name) { setSelectedPlayer(""); setActiveTab("kalender"); return; }
 
-    const isCaptain = CAPTAIN_OPTIONS.some((c) => c.label === name);
+    const isCaptain = CAPTAIN_OPTIONS.includes(name);
     if (isCaptain) {
       if (authorizedCaptains[name]) { setSelectedPlayer(name); setActiveTab("kapitaen"); return; }
       const pin = window.prompt(`PIN für ${name} eingeben:`);
@@ -717,8 +719,8 @@ export default function App() {
               className="h-10 rounded-xl border border-zinc-200 bg-zinc-50 px-3 text-sm font-medium text-zinc-800 outline-none focus:border-violet-400 focus:bg-white"
             >
               <option value="">Name wählen…</option>
-              {CAPTAIN_OPTIONS.map((c) => (
-                <option key={c.id} value={c.label}>👑 {c.label}</option>
+              {CAPTAIN_OPTIONS.map((label) => (
+                <option key={label} value={label}>👑 {label}</option>
               ))}
               {ALL_PLAYERS.map((p) => (
                 <option key={p.name} value={p.name}>{p.name}</option>
@@ -826,7 +828,7 @@ function KalenderTab({ visibleTeams, responses, selectedPlayer, isCaptainView, s
 function MatchCard({ match, team, responses, selectedPlayer, isCaptainView, saveResponse }) {
   const [open, setOpen]               = useState(false);
   const [editingPlayer, setEditingPlayer] = useState(null);
-  const counts  = getCounts(match.id, responses);
+  const counts  = useMemo(() => getCounts(match.id, responses), [match.id, responses]);
   const traffic = getTrafficLight(counts.totalAvailable);
   const myValue = responses[match.id]?.[selectedPlayer] || DEFAULT_RESPONSE;
 
@@ -998,20 +1000,16 @@ function KapitaenTab({ boardMatches, responses, lineups, saveLineup }) {
         <div className="font-bold">Kapitänsübersicht</div>
         <div className="text-xs text-violet-400 mt-0.5">Empfehlungen, finale Aufstellungen und JPG-Export</div>
       </div>
-      {boardMatches.map((match) => {
-        const team   = TEAMS.find((t) => t.id === match.teamId);
-        const lineup = normalizeLineup(lineups[match.id]);
-        return (
-          <MatchRecommendation
-            key={match.id}
-            match={match}
-            team={team}
-            responses={responses}
-            lineup={lineup}
-            saveLineup={saveLineup}
-          />
-        );
-      })}
+      {boardMatches.map((match) => (
+        <MatchRecommendation
+          key={match.id}
+          match={match}
+          team={TEAMS.find((t) => t.id === match.teamId)}
+          responses={responses}
+          lineup={lineups[match.id]}
+          saveLineup={saveLineup}
+        />
+      ))}
     </div>
   );
 }
