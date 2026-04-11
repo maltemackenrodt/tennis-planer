@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "Tennisplaner Dev",
+      "runtimeExecutable": "node",
+      "runtimeArgs": ["/Users/maltemackenrodt/Desktop/tennisplaner/node_modules/.bin/vite"],
+      "port": 5173
+    }
+  ]
+}
