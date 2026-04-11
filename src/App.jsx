@@ -752,7 +752,7 @@ export default function App() {
           <div className="rounded-3xl bg-white px-6 py-12 text-center shadow-sm">
             <img src="/logo.png" alt="Linden 07" className="mx-auto mb-4 h-24 w-auto" />
             <div className="text-5xl">🎾</div>
-            <div className="mt-4 text-lg font-bold">Willkommen!</div>
+            <div className="mt-4 text-lg font-bold">Willkommen, tapferer Berggorilla!</div>
             <div className="mt-2 text-sm text-zinc-500 max-w-xs mx-auto">
               Wähle oben deinen Namen, um deine Spiele zu sehen und dich an- oder abzumelden.
             </div>
